@@ -32,10 +32,14 @@ you run a real investigation, every panel switches to live engine output and
 the hero banner flips to `LIVE INVESTIGATION`.
 
 **To start the demo:** in the sidebar under *Scenario control*, keep
-**Data drift** selected and press **🔍 Investigate incident**. The full
-investigation — evidence collection, statistical analysis, the debate, a
-pipeline repair, retraining, validation, and the final report — runs in a few
-seconds on a laptop.
+**Data drift** selected and press **🔍 Investigate incident**. A status panel
+advances through each agent — evidence collection, statistical analysis, the
+debate, a pipeline repair, retraining, validation, and the final report — in a
+few seconds on a laptop.
+
+Optional: tick **Demo failed-recovery path (strict gates)** to rehearse a
+candidate that fails the F1 improvement gate and routes through the escalation
+hold before the doctor signs off.
 
 ---
 
@@ -89,10 +93,10 @@ The Detective's output: observable evidence first, hypotheses second.
   - **E-03 — Serving/training contract** (pipeline registry): the versioned
     feature contract is minimal and unguarded.
 - **Suspect ledger.** The three competing root-cause hypotheses with animated
-  confidence bars: *Feature distribution shift* (88%, primary, coral),
-  *Preprocessing contract defect* (41%, open), and *Model training
-  regression* (27%, open). Nothing is deleted — ruled-out suspects stay on
-  the board with their rationale.
+  confidence bars. Scores are **computed from evidence** — PSI severity,
+  missing-rate signals, contract gaps, and model metadata — not looked up from
+  a table. The leading suspect is highlighted in coral; ruled-out hypotheses
+  stay on the board with their rationale.
 - **Feature drift fingerprint.** The Statistician's real measurements: one
   PSI (population stability index) bar per feature, colour-coded by severity,
   on a log scale with the industry 0.25 material-drift threshold drawn as a
@@ -114,23 +118,24 @@ exactly which features moved and by how much."*
 
 Root-cause analysis as a transcript rather than a single opaque answer.
 
-- **The transcript.** Five agents speak in turn, each in a chat bubble with an
+- **The transcript.** Six agents speak in turn, each in a chat bubble with an
   avatar and a stance chip:
   - **Sherlock** (Detective, `OPENS CASE`) states the leading suspect and its
-    confidence.
+    **computed** confidence.
   - **Ada** (Statistician, `EVIDENCE`) brings the measurements: PSI and the
-    KS test verdict for the strongest feature.
+    KS test verdict for the strongest feature (categorical features are
+    labelled KS N/A).
   - **Linus** (ML Engineer, `DISSENT`, coral chip) pushes back — he wants the
-    pipeline contract ruled out before anyone touches production. Recorded
-    dissent is the point: the system documents disagreement instead of
-    fabricating certainty.
+    pipeline contract ruled out before anyone touches production.
+  - **Linus** again (`CONTRACT CHECK`) cross-examines the versioned feature
+    contract against the active preprocessor and champion schema.
   - **SRE-7** (Infra, `OPERATIONAL CHECK`) reports latency, error rate, and
     memory are inside the operating envelope — clearing the platform as a
     suspect.
   - **Moriarty** (Moderator, `CONSENSUS`, mint chip) closes the case only
-    after the claims are compared, and authorises a *reversible* repair with
-    a validation gate.
-- **Moderator conclusion.** The verdict card: the primary suspect with an 88%
+    after the claims are compared, cites the confidence margin between the top
+    two suspects, and authorises a *reversible* repair with validation gates.
+- **Moderator conclusion.** The verdict card: the primary suspect with a
   confidence ring and the one-line rationale.
 
 **What to say:** *"Notice the red chip — the engineer disagrees, on the
@@ -147,8 +152,7 @@ The technical verdict translated into a treatment plan.
 
 - **Patient record.** The diagnosed condition (*Feature distribution shift*),
   its severity (HIGH), the bedside note, and a **recovery-probability ring**
-  (94%) — the doctor's estimate given the validated treatment and the
-  deterministic gates.
+  estimated from gate pass ratio and candidate lift — not a fixed placeholder.
 - **Treatment plan.** Three numbered prescriptions for this diagnosis:
   refresh the training window with recent labelled traffic, promote the
   behaviour features that now carry the fraud signal, and install PSI/KS
@@ -177,10 +181,13 @@ the same deterministic incident window. This page is the receipt.
     being useless. Precision is what collapsed, and the chart makes that
     visible.
 - **Health trajectory.** The three-act arc as a chart: 77% → 49% → 78%.
+- **Validation gates.** A pass/fail board for the explicit recovery gates:
+  minimum F1 improvement, F1 floor, and recall floor. Each row shows the
+  measured value against the threshold.
 - **Approval banner.** `RECOVERY APPROVED FOR HUMAN REVIEW` — the candidate
-  cleared explicit gates (minimum F1 improvement, F1 floor, recall floor).
-  If it hadn't, this banner would say so and the case would return for human
-  investigation instead of claiming success.
+  cleared every gate. If any gate fails (try **strict gates** in the sidebar),
+  the banner reflects the hold and the case routes through an escalation step
+  before the doctor signs off.
 - **Autonomous engineering record.** A terminal card showing the commit the
   engineer agent prepared for its bounded pipeline-contract repair. With
   `SHERLOCKML_AUTOCOMMIT=1` it makes a real local commit and the card shows
@@ -240,8 +247,9 @@ Honesty is part of the pitch:
 
 - **Real:** the datasets (synthetic but generated fresh each run), the
   trained XGBoost / logistic-regression models, the PSI and KS statistics,
-  the retraining experiment, the validation gates, the diff artifact, the
-  MLflow (SQLite) experiment record, and the generated reports.
+  contract-driven retraining from `models/pipeline_contract.json`, the
+  validation gates, the diff artifact, the MLflow (SQLite) experiment record,
+  and the generated reports.
 - **Bounded by design:** no customer data, no hosted LLM required, no remote
   pushes, and no automatic deployment — the strongest outcome the system can
   produce is *approved for human review*.
@@ -256,10 +264,10 @@ Honesty is part of the pitch:
    engineer and a doctor work the case in seconds."
 3. **Case File** — "Evidence first: three exhibits, three suspects, and the
    drift chart showing transaction_amount 24× over the threshold."
-4. **War Room** — "They argue. The engineer dissents — on the record. The
-   moderator resolves the case only after the dissent is answered."
+4. **War Room** — "They argue. The engineer dissents — then cross-examines the
+   contract. The moderator resolves the case only after the dissent is answered."
 5. **Model Doctor** — "Diagnosis, severity, a three-step prescription, and a
-   94% recovery estimate."
+   recovery estimate derived from the gate results."
 6. **Recovery Results** — "The prescription was tested: a real retrained
    model, F1 back to 0.79, every gate passed, the fix committed — and the
    last act is asking a human to approve. Detective, doctor, recovery."

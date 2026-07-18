@@ -146,9 +146,9 @@ def _preview_case(incident_type: str) -> dict[str, Any]:
         "incident_title": selected["title"],
         "status": "Preview — engine not connected",
         "health": {
-            "before": 92.0,
-            "after_incident": 61.0,
-            "recovered": 90.0,
+            "before": 77.0,
+            "after_incident": 49.0,
+            "recovered": 78.0,
             "status": "critical",
             "model_name": "Fraud Sentinel / xgboost-v17",
             "latency_ms": 112.0,
@@ -664,6 +664,14 @@ def normalise_investigation(payload: Any) -> dict[str, Any]:
                     default="Awaiting validation evidence.",
                 )
             ),
+            "gates": [
+                {
+                    "name": str(_first(gate, "name", default="Gate")),
+                    "passed": bool(_first(gate, "passed", default=False)),
+                    "detail": str(_first(gate, "detail", default="")),
+                }
+                for gate in _as_list(recovery_raw.get("gates"))
+            ],
             "git_commit": str(
                 _first(
                     recovery_raw,
@@ -702,8 +710,8 @@ async def _resolve_awaitable(outcome: Awaitable[Any]) -> Any:
     return await outcome
 
 
-def _call_maybe_async(function: Callable[..., Any], *args: Any) -> Any:
-    outcome = function(*args)
+def _call_maybe_async(function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    outcome = function(*args, **kwargs)
     if inspect.isawaitable(outcome):
         import asyncio
 
@@ -711,18 +719,62 @@ def _call_maybe_async(function: Callable[..., Any], *args: Any) -> Any:
     return outcome
 
 
-def run_investigation(incident_type: str) -> tuple[dict[str, Any], str | None]:
-    """Run the core engine, or return a transparent preview if it is absent."""
+_NODE_PROGRESS = {
+    "observe": "Collecting evidence",
+    "statistician": "Running PSI/KS diagnostics",
+    "infra": "Checking serving telemetry",
+    "war_room": "Debating root cause",
+    "engineer": "Writing contract repair",
+    "experiment": "Training and validating candidate",
+    "escalate": "Recording validation hold",
+    "doctor": "Prescribing treatment",
+    "tracker": "Logging experiment",
+    "report": "Generating recovery report",
+}
+
+
+def run_investigation(
+    incident_type: str,
+    *,
+    strict_gates: bool = False,
+    progress: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """Run the core engine with optional per-node progress callbacks."""
 
     investigate, _, issue = _resolve_engine()
     if investigate is None:
         return _preview_case(incident_type), issue
     try:
-        return normalise_investigation(_call_maybe_async(investigate, incident_type)), None
-    except Exception as error:  # Keep the UX usable and expose an actionable error.
-        return _preview_case(
-            incident_type
-        ), f"Investigation engine raised {error.__class__.__name__}: {error}"
+        payload = _call_maybe_async(investigate, incident_type, strict_gates=strict_gates)
+        return normalise_investigation(payload), None
+    except TypeError:
+        try:
+            from agents.graph import normalize_incident_type, stream_case, to_dashboard_contract
+            from api.main import reset_local_state
+
+            reset_local_state()
+            state: dict[str, Any] = {
+                "incident_type": normalize_incident_type(incident_type),
+                "timeline": [],
+                "strict_gates": strict_gates,
+            }
+            for node_name, update in stream_case(incident_type, strict_gates=strict_gates):
+                state.update(update)
+                if progress is not None:
+                    progress(_NODE_PROGRESS.get(node_name, node_name))
+            return normalise_investigation(to_dashboard_contract(state)), None
+        except Exception as error:
+            prior = st.session_state.get("case")
+            return (
+                prior if isinstance(prior, dict) else _preview_case(incident_type),
+                f"Investigation engine raised {error.__class__.__name__}: {error}",
+            )
+    except Exception as error:
+        prior = st.session_state.get("case")
+        return (
+            prior if isinstance(prior, dict) else _preview_case(incident_type),
+            f"Investigation engine raised {error.__class__.__name__}: {error}",
+        )
 
 
 def reset_investigation() -> str | None:
@@ -937,7 +989,11 @@ def _inject_styles() -> None:
           .terminal-body .prompt { color:var(--mint); margin-right:.45rem; }
           .terminal-body .t-muted { color:#5f7d81; }
 
-          .artifact-grid { display:flex; flex-wrap:wrap; gap:.5rem; }
+          .gate-board { margin:.35rem 0 1rem; }
+          .gate-row { display:grid; grid-template-columns: 5.5rem 1fr 1.4fr; gap:.65rem; align-items:center; padding:.55rem .2rem; border-bottom:1px solid var(--line); font-size:.84rem; }
+          .gate-row:last-child { border-bottom:0; }
+          .gate-name { color:var(--paper); font-weight:600; }
+          .gate-detail { color:#9eafb1; font:.74rem 'DM Mono', monospace; }
           .artifact-chip { padding:.4rem .7rem; border-radius:9px; border:1px solid rgba(137,199,255,.28); background:rgba(137,199,255,.06); color:var(--blue); font:.68rem 'DM Mono',monospace; }
           .artifact-chip span { color:#7f9da1; margin-right:.45rem; text-transform:uppercase; letter-spacing:.07em; }
 
@@ -1500,6 +1556,27 @@ def _render_artifacts(case: dict[str, Any]) -> None:
     st.markdown(f'<div class="artifact-grid">{chips}</div>', unsafe_allow_html=True)
 
 
+def _render_validation_gates(gates: list[dict[str, Any]]) -> None:
+    if not gates:
+        return
+    rows = "".join(
+        f"""
+        <div class="gate-row">
+          <span class="signal {_status_colour('pass' if gate['passed'] else 'fail')}">
+            <span class="dot"></span>{'PASS' if gate['passed'] else 'FAIL'}
+          </span>
+          <span class="gate-name">{_escape(gate['name'])}</span>
+          <span class="gate-detail">{_escape(gate.get('detail', ''))}</span>
+        </div>
+        """.strip()
+        for gate in gates
+    )
+    st.markdown(
+        f'<div class="section-label">Validation gates</div><div class="gate-board">{rows}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def _render_recovery(case: dict[str, Any]) -> None:
     health = case["health"]
     recovery = case["recovery"]
@@ -1516,6 +1593,7 @@ def _render_recovery(case: dict[str, Any]) -> None:
         else:
             _render_experiments(case)
         _render_deltas(case["metrics_compare"])
+        _render_validation_gates(case["recovery"].get("gates", []))
     with col_b:
         st.markdown(
             '<div class="section-label" style="margin-top:0">Health trajectory</div>',
@@ -1644,11 +1722,19 @@ def main() -> None:
             help="Choose the failure injected into the synthetic production system.",
         )
         st.caption(INCIDENT_HINTS.get(incident_type, ""))
+        strict_gates = st.checkbox(
+            "Demo failed-recovery path (strict gates)",
+            help="Raises the F1 improvement threshold so the candidate is rejected for demo purposes.",
+        )
         if st.button("🔍 Investigate incident", type="primary", use_container_width=True):
-            with st.spinner(
-                "Agents are collecting evidence, debating suspects, and validating a treatment…"
-            ):
-                case, notice = run_investigation(incident_type)
+            with st.status("Investigation in progress…", expanded=True) as status:
+                def _progress(label: str) -> None:
+                    status.write(label)
+
+                case, notice = run_investigation(
+                    incident_type, strict_gates=strict_gates, progress=_progress
+                )
+                status.update(label="Investigation complete", state="complete")
             st.session_state.case = case
             st.session_state.engine_notice = notice
             st.session_state.last_run_at = _now()
