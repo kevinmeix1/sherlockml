@@ -130,7 +130,12 @@ local demo actions only.
 5. Read the approval decision and generated recovery report.
 
 The [demo script](docs/DEMO_SCRIPT.md) includes a concise judge-facing
-narrative and a recovery drill.
+narrative and a recovery drill. For a screen-by-screen guide with live
+screenshots of every dashboard page, see the
+[demo walkthrough](docs/demo/DEMO_WALKTHROUGH.md) — also available as a
+shareable PDF at
+[docs/demo/SherlockML-Demo-Walkthrough.pdf](docs/demo/SherlockML-Demo-Walkthrough.pdf)
+(regenerate it with `python3 docs/demo/make_pdf.py`).
 
 ## Project layout
 

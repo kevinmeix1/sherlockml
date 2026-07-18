@@ -622,9 +622,36 @@ def to_dashboard_contract(state: Mapping[str, Any]) -> dict[str, Any]:
                 "agent": str(message.get("speaker", message.get("agent", "Agent"))),
                 "role": str(message.get("role", "Investigation specialist")),
                 "stance": str(message.get("stance", "analysis")),
+                "icon": str(message.get("icon", "🤖")),
                 "message": str(message.get("message", "No message supplied.")),
             }
         )
+
+    diagnostics = _as_dict(state.get("diagnostics"))
+    drift_features: list[dict[str, Any]] = []
+    for item in diagnostics.get("features", []):
+        feature = _as_dict(item)
+        if not feature:
+            continue
+        drift_features.append(
+            {
+                "feature": str(feature.get("feature", "unknown")),
+                "type": str(feature.get("type", "numeric")),
+                "psi": _number(feature.get("psi")),
+                "ks_pvalue": _number(feature.get("ks_pvalue"), 1.0),
+                "severity": str(feature.get("severity", "stable")),
+                "missing_rate_current": _number(feature.get("missing_rate_current")),
+            }
+        )
+
+    metric_names = ("accuracy", "precision", "recall", "f1")
+    experiment_before = _as_dict(experiment.get("before")) or baseline
+    metrics_compare = {
+        "baseline": {
+            name: _metric_fraction(experiment_before.get(name, 0.0)) for name in metric_names
+        },
+        "candidate": {name: _metric_fraction(candidate.get(name, 0.0)) for name in metric_names},
+    }
 
     treatments: list[dict[str, Any]] = []
     for index, action in enumerate(doctor.get("treatment", []), start=1):
@@ -661,6 +688,8 @@ def to_dashboard_contract(state: Mapping[str, Any]) -> dict[str, Any]:
         "suspects": suspects,
         "timeline": list(state.get("timeline", [])),
         "war_room": messages,
+        "drift": {"features": drift_features},
+        "metrics_compare": metrics_compare,
         "diagnosis": {
             "patient": str(doctor.get("patient", "Fraud Detection Model")),
             "condition": str(
