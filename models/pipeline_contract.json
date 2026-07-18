@@ -1,0 +1,24 @@
+{
+  "version": "fraud-v1.7",
+  "selected_features": [
+    "transaction_amount",
+    "transaction_frequency",
+    "customer_age",
+    "account_age_days"
+  ],
+  "preprocessing": {
+    "scaler": "standard",
+    "impute_missing": "median",
+    "parity_check": false
+  },
+  "training_window_days": 14,
+  "estimator": {
+    "champion": "xgboost",
+    "max_depth": 2,
+    "learning_rate": 0.05
+  },
+  "release_gate": {
+    "minimum_f1": 0.78,
+    "minimum_recall": 0.72
+  }
+}

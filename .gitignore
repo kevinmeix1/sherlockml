@@ -1,0 +1,46 @@
+# Python environments and interpreter output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Local editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Generated demo state and model artifacts
+artifacts/*
+!artifacts/.gitkeep
+runtime/*
+!runtime/.gitkeep
+experiments/mlruns/
+experiments/*.json
+experiments/*.csv
+models/*.joblib
+models/*.pkl
+models/*.onnx
+models/*.bin
+
+# Streamlit and MLflow local state
+.streamlit/secrets.toml
+mlruns/
