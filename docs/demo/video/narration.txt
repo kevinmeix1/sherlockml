@@ -1,0 +1,21 @@
+SherlockML is an autonomous reliability engineer for machine learning systems.
+
+The story is simple. An insurance fraud model is still online, still answering requests, but its quality has quietly dropped. That is the dangerous kind of incident: nothing crashes, but the model starts making worse decisions.
+
+Here is the command room. The operator chooses a scenario, in this case data drift, and runs an investigation. SherlockML turns the incident into a case with evidence, suspects, a debate, a repair, and a validation report.
+
+On model health, the patient view makes the failure visible. The production model has fallen below the policy floor, while the workflow tracks each phase from alert, to evidence, to repair, to verification.
+
+The case file comes next. The detective does not guess. It keeps three exhibits on the board, then the statistician measures the distribution shift feature by feature. Transaction amount is far beyond the material drift threshold, so the leading suspect becomes a population shift.
+
+In the war room, the agents argue before they agree. The engineer pushes back and asks for the serving contract to be ruled out. The infrastructure agent checks latency, error rate, and memory. Only after that does the moderator authorize a reversible repair.
+
+The model doctor translates the diagnosis into treatment: refresh the training window, promote the features that now carry signal, and add statistical guardrails so this failure is caught earlier next time.
+
+Then SherlockML proves the fix. The experiment agent retrains a candidate model and evaluates it on the same incident window. F1 recovers from about forty nine percent to about seventy nine percent, with the report, diff, and experiment record saved as artifacts.
+
+The important detail is the ending. SherlockML does not silently deploy. It prepares the repair and approves it for human review. That is the shape of autonomy I would trust in an ML platform: observe, investigate, fix, prove, and ask for approval.
+
+The same system also handles pipeline bugs and model regressions. Different symptoms, different suspects, different repairs, same evidence-first workflow.
+
+That is SherlockML: an AI detective and doctor for production machine learning reliability.
