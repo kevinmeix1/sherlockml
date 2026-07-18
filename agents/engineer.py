@@ -5,7 +5,7 @@ from __future__ import annotations
 import difflib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agents.git_integration import propose_or_commit
 
@@ -38,14 +38,34 @@ def inspect_pipeline() -> dict[str, Any]:
     if not PIPELINE_CONTRACT.exists():
         restore_pipeline_contract()
     contract = json.loads(PIPELINE_CONTRACT.read_text())
+    selected = cast(list[str], contract.get("selected_features", []))
+    baseline_features = cast(list[str], DEFAULT_CONTRACT["selected_features"])
+    missing_features = sorted(set(baseline_features) ^ set(selected))
+    parity = contract.get("preprocessing", {}).get("parity_check", False)
+    finding_parts = []
+    if len(selected) < len(baseline_features) + 3:
+        finding_parts.append(
+            "The contract is deliberately minimal and lacks behavior features, serving parity "
+            "assertions, and a recent-label training window."
+        )
+    if not parity:
+        finding_parts.append("Serving parity checks are disabled.")
+    if contract.get("training_window_days", 14) < 28:
+        finding_parts.append(
+            f"Training window is only {contract.get('training_window_days')} days."
+        )
+    if missing_features:
+        finding_parts.append(f"Feature delta vs baseline contract: {', '.join(missing_features)}.")
+    finding = (
+        " ".join(finding_parts)
+        if finding_parts
+        else "Contract matches the expected champion schema."
+    )
     return {
         "file": str(PIPELINE_CONTRACT),
         "version": contract["version"],
         "selected_features": contract["selected_features"],
-        "finding": (
-            "The contract is deliberately minimal and lacks behavior features, serving parity "
-            "assertions, and a recent-label training window."
-        ),
+        "finding": finding,
         "severity": "high",
         "contract": contract,
     }

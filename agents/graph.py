@@ -12,7 +12,8 @@ contract repair performed by ``agents.engineer``; callers should use
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from datetime import datetime, timedelta, timezone
 from typing import Any, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -69,6 +70,7 @@ class InvestigationState(TypedDict, total=False):
     report: dict[str, Any]
     timeline: list[dict[str, str]]
     status: str
+    strict_gates: bool
 
 
 def normalize_incident_type(incident_type: str) -> str:
@@ -132,10 +134,12 @@ def _metric_fraction(value: Any, default: float = 0.0) -> float:
 
 
 def _timeline(state: InvestigationState, phase: str, text: str) -> list[dict[str, str]]:
-    """Append a fixed-clock event so a fresh default run is reproducible."""
+    """Append a deterministic UTC-stamped event for a repeatable investigation feed."""
 
     events = list(state.get("timeline", []))
-    events.append({"time": f"10:{len(events) + 1:02d}", "phase": phase, "text": text})
+    base = datetime(2026, 3, 15, 10, 1, 0, tzinfo=timezone.utc)
+    stamp = (base + timedelta(seconds=len(events) * 8)).strftime("%H:%M:%S")
+    events.append({"time": stamp, "phase": phase, "text": text})
     return events
 
 
@@ -162,7 +166,10 @@ def _canonical_diagnostics(simulation: dict[str, Any], incident_type: str) -> di
             # categorical rows legitimately have no KS value.  The specialist
             # statistician expects a numeric field because it prints it in the
             # War Room narrative, so a neutral p-value is the honest bridge.
-            feature["ks_pvalue"] = _number(feature.get("ks_pvalue"), 1.0)
+            if feature.get("type") == "categorical":
+                feature["ks_pvalue"] = feature.get("ks_pvalue")
+            else:
+                feature["ks_pvalue"] = _number(feature.get("ks_pvalue"), 1.0)
             feature["psi"] = _number(feature.get("psi"))
             feature.setdefault("severity", "stable")
             features.append(feature)
@@ -236,6 +243,9 @@ def _canonical_baseline(simulation: dict[str, Any]) -> dict[str, Any]:
     )
     for name in ("accuracy", "f1", "precision", "recall", "latency_ms"):
         baseline.setdefault(name, 0.0)
+    baseline["active_model"] = baseline_bundle.get("active_model", {})
+    baseline["champion_metadata"] = baseline_bundle.get("champion_metadata", {})
+    baseline["champion"] = baseline_bundle.get("champion")
     return baseline
 
 
@@ -263,6 +273,7 @@ def _canonical_operations(simulation: dict[str, Any], baseline: dict[str, Any]) 
     operations.setdefault("latency_ms", baseline.get("latency_ms", 112.0) or 112.0)
     operations.setdefault("error_rate", 0.002)
     operations.setdefault("memory_mb", 512.0)
+    operations.setdefault("cpu_pct", 50.0)
     return operations
 
 
@@ -294,6 +305,7 @@ def _observation_node(state: InvestigationState) -> dict[str, Any]:
         {
             "incident": incident,
             "baseline": baseline,
+            "metadata": metadata,
             "health": health,
             "diagnostics": diagnostics,
             "pipeline": pipeline,
@@ -358,7 +370,14 @@ def _infra_node(state: InvestigationState) -> dict[str, Any]:
 def _war_room_node(state: InvestigationState) -> dict[str, Any]:
     from agents.moderator import convene
 
-    war_room = convene(state["incident"], state["statistician"], state["infra"], state["suspects"])
+    war_room = convene(
+        state["incident"],
+        state["statistician"],
+        state["infra"],
+        state["suspects"],
+        state.get("pipeline"),
+        state.get("baseline"),
+    )
     return {
         "war_room": war_room,
         "timeline": _timeline(
@@ -416,7 +435,7 @@ def _canonical_experiment(
     )
     validation = _as_dict(raw_experiment.get("validation"))
     validation.setdefault("approved", approved)
-    validation.setdefault("gates", raw_experiment.get("gates", []))
+    validation.setdefault("gates", validation.get("gates") or raw_experiment.get("gates", []))
     validation.setdefault(
         "summary",
         "Candidate cleared deterministic recovery gates."
@@ -440,19 +459,63 @@ def _canonical_experiment(
 def _experiment_node(state: InvestigationState) -> dict[str, Any]:
     from ml.train import run_repair_experiment
 
-    raw_experiment = _as_dict(run_repair_experiment(state["simulation"]))
+    engineering = _as_dict(state.get("engineering_action"))
+    raw_experiment = _as_dict(
+        run_repair_experiment(
+            state["simulation"],
+            contract=engineering.get("candidate_contract"),
+            strict_gates=bool(state.get("strict_gates", False)),
+        )
+    )
     experiment = _canonical_experiment(raw_experiment, state["baseline"])
+    gate_summary = _as_dict(experiment.get("validation")).get("summary", "Validation complete.")
     return {
         "experiment": experiment,
         "timeline": _timeline(
             state,
             "VERIFY",
-            (
-                "The candidate was trained and evaluated against the same "
-                "deterministic incident fixture."
-            ),
+            f"Candidate evaluated against deterministic gates: {gate_summary}",
         ),
     }
+
+
+def _escalation_node(state: InvestigationState) -> dict[str, Any]:
+    """Record an explicit hold when validation gates fail before the Doctor signs."""
+
+    war_room = _as_dict(state.get("war_room"))
+    messages = list(war_room.get("messages", []))
+    failed = [
+        gate["name"]
+        for gate in _as_dict(state["experiment"].get("validation")).get("gates", [])
+        if not gate.get("passed")
+    ]
+    messages.append(
+        {
+            "speaker": "Moriarty",
+            "role": "War Room Moderator",
+            "icon": "⚔️",
+            "stance": "hold",
+            "message": (
+                "Validation did not clear — "
+                f"failed gates: {', '.join(failed) or 'recovery thresholds'}. "
+                "Escalating to the Model Doctor for a hold recommendation."
+            ),
+        }
+    )
+    return {
+        "war_room": {**war_room, "messages": messages},
+        "status": "Recovery requires further human investigation",
+        "timeline": _timeline(
+            state,
+            "ESCALATE",
+            "Validation gates blocked automatic recovery; the case remains open for review.",
+        ),
+    }
+
+
+def _route_after_experiment(state: InvestigationState) -> str:
+    approved = bool(_as_dict(state.get("experiment", {})).get("validation", {}).get("approved"))
+    return "doctor" if approved else "escalate"
 
 
 def _doctor_node(state: InvestigationState) -> dict[str, Any]:
@@ -516,6 +579,7 @@ def build_investigation_graph() -> Any:
     workflow.add_node("war_room", _war_room_node)
     workflow.add_node("engineer", _engineering_node)
     workflow.add_node("experiment", _experiment_node)
+    workflow.add_node("escalate", _escalation_node)
     workflow.add_node("doctor", _doctor_node)
     workflow.add_node("tracker", _tracking_node)
     workflow.add_node("report", _report_node)
@@ -525,20 +589,42 @@ def build_investigation_graph() -> Any:
     workflow.add_edge("infra", "war_room")
     workflow.add_edge("war_room", "engineer")
     workflow.add_edge("engineer", "experiment")
-    workflow.add_edge("experiment", "doctor")
+    workflow.add_conditional_edges(
+        "experiment",
+        _route_after_experiment,
+        {"doctor": "doctor", "escalate": "escalate"},
+    )
+    workflow.add_edge("escalate", "doctor")
     workflow.add_edge("doctor", "tracker")
     workflow.add_edge("tracker", "report")
     workflow.add_edge("report", END)
     return workflow.compile()
 
 
-def run_case(incident_type: str) -> dict[str, Any]:
+def run_case(incident_type: str, *, strict_gates: bool = False) -> dict[str, Any]:
     """Execute one named incident through the complete LangGraph workflow."""
 
     canonical = normalize_incident_type(incident_type)
     graph = build_investigation_graph()
-    result = graph.invoke({"incident_type": canonical, "timeline": []})
+    result = graph.invoke(
+        {"incident_type": canonical, "timeline": [], "strict_gates": strict_gates}
+    )
     return dict(cast(Mapping[str, Any], result))
+
+
+def stream_case(
+    incident_type: str, *, strict_gates: bool = False
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield ``(node_name, partial_state_update)`` pairs for live dashboard progress."""
+
+    canonical = normalize_incident_type(incident_type)
+    graph = build_investigation_graph()
+    for event in graph.stream(
+        {"incident_type": canonical, "timeline": [], "strict_gates": strict_gates}
+    ):
+        if isinstance(event, Mapping):
+            for node_name, update in event.items():
+                yield str(node_name), dict(cast(Mapping[str, Any], update))
 
 
 def _health_score(metrics: Mapping[str, Any]) -> float:
@@ -709,6 +795,7 @@ def to_dashboard_contract(state: Mapping[str, Any]) -> dict[str, Any]:
                     doctor.get("bedside_note", "Candidate outcome requires human review."),
                 )
             ),
+            "gates": list(validation.get("gates", [])),
             "git_commit": str(
                 git.get("message", engineering.get("summary", "No repair artifact recorded."))
             ),

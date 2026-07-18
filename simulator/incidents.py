@@ -8,6 +8,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
+from ml.contract import load_pipeline_contract
 from ml.data import FEATURE_COLUMNS, generate_fraud_data
 from ml.drift import build_diagnostics
 from ml.train import ModelArtifact, evaluate_model, run_baseline, train_model
@@ -117,6 +118,34 @@ def _scenario_metadata(kind: IncidentKind) -> dict[str, Any]:
     return {**common, **stories[kind]}
 
 
+def _operations_for_scenario(kind: IncidentKind, latency_ms: float) -> dict[str, Any]:
+    """Scenario-specific serving telemetry fed to the Infra agent."""
+
+    if kind == "pipeline_bug":
+        return {
+            "latency_ms": round(latency_ms * 1.28, 1),
+            "error_rate": 0.0042,
+            "memory_mb": 628.0,
+            "cpu_pct": 61.0,
+            "note": "Serving latency is elevated after the preprocessing release.",
+        }
+    if kind == "model_regression":
+        return {
+            "latency_ms": round(latency_ms * 0.92, 1),
+            "error_rate": 0.0018,
+            "memory_mb": 488.0,
+            "cpu_pct": 44.0,
+            "note": "Platform telemetry is stable; the regression is model-side.",
+        }
+    return {
+        "latency_ms": round(latency_ms, 1),
+        "error_rate": 0.0020,
+        "memory_mb": 512.0,
+        "cpu_pct": 52.0,
+        "note": "Routine serving load during the drift window.",
+    }
+
+
 def simulate_incident(kind: str = "data_drift", *, seed: int = 2026) -> IncidentSimulation:
     """Build one reproducible end-to-end incident with an honest repair window.
 
@@ -135,7 +164,8 @@ def simulate_incident(kind: str = "data_drift", *, seed: int = 2026) -> Incident
     healthy_validation = generate_fraud_data(
         850, seed=seed + 1, start_time="2026-02-10", profile="healthy"
     )
-    baseline = run_baseline(training_data, healthy_validation, seed=seed)
+    contract = load_pipeline_contract()
+    baseline = run_baseline(training_data, healthy_validation, seed=seed, contract=contract)
     champion = baseline["champion_artifact"]
 
     if incident_kind == "data_drift":
@@ -202,6 +232,11 @@ def simulate_incident(kind: str = "data_drift", *, seed: int = 2026) -> Incident
                 "incident_start": str(incident_data["event_time"].min()),
             },
             "active_model_regressed": active_artifact.name != champion.name,
+            "operations": _operations_for_scenario(
+                incident_kind, float(incident_metrics.get("latency_ms", 18.6))
+            ),
+            "contract_version": contract.get("version"),
+            "contract_features": list(contract.get("selected_features", [])),
         }
     )
     return IncidentSimulation(

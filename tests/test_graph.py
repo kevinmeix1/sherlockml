@@ -37,10 +37,10 @@ def test_graph_produces_a_complete_dashboard_case() -> None:
     assert case["incident_type"] == "data_drift"
     assert len(case["evidence"]) >= 3
     assert len(case["suspects"]) == 3
-    assert len(case["war_room"]) >= 5
+    assert len(case["war_room"]) >= 6
     assert len(case["timeline"]) == 9
     assert case["timeline"][0] == {
-        "time": "10:01",
+        "time": "10:01:00",
         "phase": "ALERT",
         "text": "Synthetic data drift monitor crossed its reliability threshold.",
     }

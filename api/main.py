@@ -2,31 +2,33 @@
 
 from __future__ import annotations
 
+import json
+import os
 from threading import RLock
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
 from agents.graph import (
     SUPPORTED_INCIDENTS,
     normalize_incident_type,
     reset_local_state,
     run_case,
+    stream_case,
     to_dashboard_contract,
 )
 
 app = FastAPI(
     title="SherlockML Incident API",
-    version="0.1.0",
+    version="0.2.0",
     description=(
         "A local, deterministic ML-reliability investigation interface. "
-        "A recovery approval always requires human review."
+        "Agents compute evidence-led scores, repairs honour the pipeline contract, "
+        "and recovery approval always requires human review."
     ),
 )
 
-# The demo deliberately mutates one local pipeline-contract file while the
-# engineer prepares a reviewable repair. Serialising runs makes that mutation
-# deterministic and avoids one browser click overwriting another case's diff.
 _investigation_lock = RLock()
 
 _INCIDENT_CATALOG = {
@@ -44,26 +46,76 @@ _INCIDENT_CATALOG = {
     },
 }
 
+_NODE_LABELS = {
+    "observe": "Collecting evidence",
+    "statistician": "Running PSI/KS diagnostics",
+    "infra": "Checking serving telemetry",
+    "war_room": "Debating root cause",
+    "engineer": "Writing contract repair",
+    "experiment": "Training and validating candidate",
+    "escalate": "Recording validation hold",
+    "doctor": "Prescribing treatment",
+    "tracker": "Logging experiment",
+    "report": "Generating recovery report",
+}
 
-def run_investigation(incident_type: str) -> dict[str, Any]:
-    """Run one full case and return the dashboard's documented response shape.
 
-    This function intentionally remains synchronous so Streamlit can import it
-    directly without requiring an HTTP process.  The same function backs the
-    FastAPI endpoint below.
-    """
+def _strict_gates_enabled() -> bool:
+    return os.environ.get("SHERLOCKML_STRICT_GATES", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def run_investigation(incident_type: str, *, strict_gates: bool | None = None) -> dict[str, Any]:
+    """Run one full case and return the dashboard's documented response shape."""
 
     try:
         canonical = normalize_incident_type(incident_type)
     except (AttributeError, ValueError) as error:
         raise ValueError(str(error)) from error
 
+    use_strict = _strict_gates_enabled() if strict_gates is None else strict_gates
     with _investigation_lock:
-        # Every run begins from the same feature-contract baseline, then leaves
-        # its repair and diff in local artifacts for the operator to inspect.
         reset_local_state()
-        state = run_case(canonical)
+        state = run_case(canonical, strict_gates=use_strict)
         return to_dashboard_contract(state)
+
+
+def stream_investigation(
+    incident_type: str, *, strict_gates: bool | None = None
+) -> StreamingResponse:
+    """Stream node-by-node progress as newline-delimited JSON events."""
+
+    try:
+        canonical = normalize_incident_type(incident_type)
+    except (AttributeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    use_strict = _strict_gates_enabled() if strict_gates is None else strict_gates
+
+    def event_generator():
+        with _investigation_lock:
+            reset_local_state()
+            state: dict[str, Any] = {
+                "incident_type": canonical,
+                "timeline": [],
+                "strict_gates": use_strict,
+            }
+            for node_name, update in stream_case(canonical, strict_gates=use_strict):
+                state.update(update)
+                payload = {
+                    "node": node_name,
+                    "label": _NODE_LABELS.get(node_name, node_name),
+                    "timeline": state.get("timeline", []),
+                }
+                yield json.dumps(payload) + "\n"
+            yield json.dumps(
+                {"node": "complete", "case": to_dashboard_contract(state)}
+            ) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 
 def reset_state() -> dict[str, str]:
@@ -89,6 +141,7 @@ def health() -> dict[str, Any]:
         "mode": "deterministic-local",
         "requires_human_approval": True,
         "supported_incidents": list(SUPPORTED_INCIDENTS),
+        "strict_gates_env": "SHERLOCKML_STRICT_GATES",
     }
 
 
@@ -105,18 +158,27 @@ def incidents() -> dict[str, Any]:
 
 
 @app.post("/api/incidents/{incident_type}/investigate")
-def investigate_incident(incident_type: str) -> dict[str, Any]:
+def investigate_incident(incident_type: str, strict_gates: bool = False) -> dict[str, Any]:
     """Execute a bounded investigation for a declared synthetic incident."""
 
     try:
-        return run_investigation(incident_type)
+        return run_investigation(incident_type, strict_gates=strict_gates)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    except Exception as error:  # Preserve the exception type without leaking tracebacks.
+    except Exception as error:
         raise HTTPException(
             status_code=500,
             detail=f"SherlockML could not complete the investigation: {error.__class__.__name__}",
         ) from error
+
+
+@app.post("/api/incidents/{incident_type}/investigate/stream")
+def investigate_incident_stream(
+    incident_type: str, strict_gates: bool = False
+) -> StreamingResponse:
+    """Stream investigation progress for live dashboard updates."""
+
+    return stream_investigation(incident_type, strict_gates=strict_gates)
 
 
 @app.post("/api/reset")

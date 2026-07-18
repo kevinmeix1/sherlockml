@@ -46,9 +46,9 @@ discuss in an interview or hackathon setting.
 | Model health | A baseline fraud-model score, incident severity, and evidence timeline |
 | Incident simulator | Reproducible synthetic drift, pipeline-bug, and regression scenarios |
 | Multi-agent brain | Detective, Statistician, Infra, Moderator, Doctor, Engineer, and Experiment roles |
-| War Room | A stored, evidence-linked debate rather than an opaque single answer |
-| Recovery | A controlled local pipeline-contract repair, diff, candidate experiment, gates, and report |
-| Dashboard | A Streamlit control room backed by a FastAPI API |
+| War Room | A stored, evidence-linked debate with recorded dissent and contract cross-examination |
+| Recovery | Contract-driven retraining, explicit validation gates, diff artifact, and report |
+| Dashboard | A Streamlit control room with live investigation progress and gate badges |
 
 The exact metric values are generated from the selected synthetic scenario and
 seed. They are **demo observations**, not claims about a deployed fraud model.
@@ -73,7 +73,8 @@ flowchart TD
     ENG --> EXP["Experiment Agent\ntrain and compare candidate"]
     EXP --> VAL{"Validation gates"}
     VAL --> REP["Recovery report and local artifacts"]
-    VAL -. "not approved" .-> WAR
+    VAL -. "gates failed" .-> ESC["Escalation hold"]
+    ESC --> DOC
 ```
 
 See [the architecture guide](docs/ARCHITECTURE.md) for the data flow, agent
@@ -113,21 +114,52 @@ make check
 | --- | --- | --- |
 | GET | /health | Check that the local service is live. |
 | GET | /api/incidents | List the deterministic demo scenarios. |
-| POST | /api/incidents/{incident_type}/investigate | Run one bounded investigation. |
+| POST | /api/incidents/{incident_type}/investigate | Run one bounded investigation (`?strict_gates=true` for the failed-recovery demo path). |
+| POST | /api/incidents/{incident_type}/investigate/stream | Stream per-node progress as NDJSON for live dashboards. |
 | POST | /api/reset | Restore the synthetic pipeline contract baseline. |
+
+Set `SHERLOCKML_STRICT_GATES=1` to raise validation thresholds globally (useful for rehearsing a gate failure).
 
 Supported incident types are data_drift, pipeline_bug, and model_regression.
 The dashboard also accepts the friendly feature_pipeline_bug alias. These are
 local demo actions only.
 
+## What changed in the authenticity pass
+
+The demo still runs fully offline with no hosted LLM, but the numbers on screen
+are now derived from the synthetic data and pipeline contract rather than
+hardcoded lookup tables:
+
+- **Detective** suspect confidence is computed from PSI severity, missing-rate
+  signals, and contract gaps.
+- **Statistician** distinguishes stable drift, categorical features (KS N/A),
+  and material population movement.
+- **Infra** conclusions cite latency, error rate, memory, and CPU telemetry.
+- **War Room** records six turns, including a second engineer message that
+  cross-examines the versioned feature contract.
+- **Engineer** repairs honour `models/pipeline_contract.json`; retraining reads
+  the patched contract via `ml/contract.py`.
+- **Experiment** enforces explicit validation gates (F1 delta, F1 floor, recall
+  floor). Failed gates route through an escalation hold before the doctor signs
+  off.
+- **Doctor** recovery probability is estimated from gate pass ratio and
+  candidate lift, not a fixed 94%.
+- **Dashboard** shows live per-node progress, validation gate badges, and keeps
+  the prior case on engine errors instead of silently reverting to preview data.
+
 ## Demo: five moves
 
 1. Open the dashboard and establish the healthy baseline.
 2. Trigger a scenario such as **Data Drift**.
-3. Select **Investigate Incident** and watch the Evidence Timeline and War
-   Room fill in.
-4. Inspect the proposed remediation and the candidate experiment comparison.
+3. Select **Investigate Incident** and watch the status panel advance through
+   each agent while the Evidence Timeline and War Room fill in.
+4. Inspect the proposed remediation, validation gate badges, and the candidate
+   experiment comparison.
 5. Read the approval decision and generated recovery report.
+
+Optional: enable **Demo failed-recovery path (strict gates)** in the sidebar to
+rehearse a candidate that fails the F1 improvement gate and routes through the
+escalation hold.
 
 The [demo script](docs/DEMO_SCRIPT.md) includes a concise judge-facing
 narrative and a recovery drill. For a screen-by-screen guide with live
