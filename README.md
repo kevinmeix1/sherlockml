@@ -11,6 +11,28 @@ It is deliberately **not a chatbot**. The primary interaction is an
 investigation control room: choose an incident and watch a constrained,
 repeatable workflow produce evidence and a recommendation.
 
+## How Codex and GPT-5.6 were used
+
+SherlockML was built as a Codex-assisted hackathon project. Codex, powered by
+GPT-5.6 during the build workflow, acted as the AI engineering partner across
+the project rather than just a code autocomplete tool.
+
+- **System design:** Codex helped turn the original idea into an autonomous ML
+  reliability-engineer architecture with specialist agents, a supervisor
+  workflow, safety boundaries, and a judge-friendly demo path.
+- **Implementation:** Codex generated and iterated on the FastAPI service,
+  Streamlit command room, deterministic incident simulator, ML training and
+  evaluation utilities, agent orchestration, reports, and documentation.
+- **Debugging and refinement:** Codex inspected runtime errors, tightened the
+  UI, fixed type/test failures, validated API responses, and improved the demo
+  flow until it was repeatable on a laptop.
+- **Demo assets:** Codex produced the screen-by-screen walkthrough, PDF,
+  architecture explanation, GitHub-ready README updates, and narrated demo
+  videos from the live app.
+- **Human oversight:** The final product intentionally mirrors the build
+  process: AI can investigate, propose, and validate, but important promotion
+  decisions remain reviewable by a human.
+
 ## The problem
 
 Machine-learning systems can fail quietly. A model may continue serving
